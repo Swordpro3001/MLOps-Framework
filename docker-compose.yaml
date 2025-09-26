@@ -1,0 +1,551 @@
+# Universal ML DevOps Framework Docker Compose
+# Platform-agnostic configuration for Linux and Windows Server
+
+# Universal networks that work on both platforms
+networks:
+  devops-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+# Universal volumes with cross-platform paths
+volumes:
+  postgres-data:
+    driver: local
+  teamcity-data:
+    driver: local
+  teamcity-logs:
+    driver: local
+  teamcity-agent-conf:
+    driver: local
+  gitlab-config:
+    driver: local
+  gitlab-logs:
+    driver: local
+  gitlab-data:
+    driver: local
+  jenkins-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  mlflow-artifacts:
+    driver: local
+  registry-data:
+    driver: local
+  jupyterhub-data:
+    driver: local
+  redis-data:
+    driver: local
+
+services:
+  # =============================================================================
+  # CORE INFRASTRUCTURE (Platform Independent)
+  # =============================================================================
+  
+  postgres:
+    image: postgres:14
+    container_name: postgres-db
+    restart: unless-stopped
+    networks:
+      - devops-network
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD:-rootpass}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server 
+      --appendonly yes 
+      --requirepass ${REDIS_PASSWORD:-redispass}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # CI SERVICES (Platform Independent)
+  # =============================================================================
+
+  teamcity-server:
+    image: jetbrains/teamcity-server:2023.11
+    container_name: teamcity-server
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${TEAMCITY_PORT:-8111}:8111"
+    environment:
+      TEAMCITY_SERVER_MEM_OPTS: "-Xmx2g -XX:ReservedCodeCacheSize=512m"
+      TEAMCITY_LOGS: /opt/teamcity/logs
+      TEAMCITY_DATA_PATH: /data/teamcity_server/datadir
+    volumes:
+      - teamcity-data:/data/teamcity_server/datadir
+      - teamcity-logs:/opt/teamcity/logs
+      - ./teamcity-config:/data/teamcity_server/datadir/config:rw
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8111/app/rest/server"]
+      interval: 60s
+      timeout: 30s
+      retries: 10
+      start_period: 120s
+
+  teamcity-agent:
+    image: jetbrains/teamcity-agent:2023.11
+    container_name: teamcity-agent
+    restart: unless-stopped
+    networks:
+      - devops-network
+    environment:
+      SERVER_URL: http://teamcity-server:8111
+      AGENT_NAME: ${AGENT_NAME:-universal-agent}
+      # Platform detection will be handled automatically
+    volumes:
+      - teamcity-agent-conf:/data/teamcity_agent/conf
+      # Cross-platform Docker socket mounting
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./ml-models:/opt/ml-models:rw
+      - ./scripts:/opt/scripts:ro
+    depends_on:
+      teamcity-server:
+        condition: service_healthy
+    # Conditional GPU access - works on both platforms
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+        limits:
+          memory: 4G
+
+  gitlab:
+    image: gitlab/gitlab-ce:16.5.1-ce.0
+    container_name: gitlab
+    restart: unless-stopped
+    hostname: 'gitlab.devops.local'
+    networks:
+      - devops-network
+    ports:
+      - "${GITLAB_HTTP_PORT:-8929}:8929"
+      - "${GITLAB_HTTPS_PORT:-8443}:443"
+      - "${GITLAB_SSH_PORT:-2222}:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        # Universal GitLab configuration
+        external_url 'http://${GITLAB_HOST:-localhost}:${GITLAB_HTTP_PORT:-8929}'
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-2222}
+        gitlab_rails['initial_root_password'] = '${GITLAB_ROOT_PASSWORD:-rootpassword123}'
+        
+        # Database configuration (universal)
+        gitlab_rails['db_adapter'] = 'postgresql'
+        gitlab_rails['db_encoding'] = 'utf8'
+        gitlab_rails['db_host'] = 'postgres'
+        gitlab_rails['db_port'] = 5432
+        gitlab_rails['db_username'] = '${POSTGRES_USER_GITLAB:-gitlab}'
+        gitlab_rails['db_password'] = '${POSTGRES_PASSWORD_GITLAB:-gitlabpass}'
+        gitlab_rails['db_database'] = '${POSTGRES_DB_GITLAB:-gitlabhq_production}'
+        
+        # Container Registry (universal)
+        registry_external_url 'http://${GITLAB_HOST:-localhost}:${GITLAB_REGISTRY_PORT:-5555}'
+        gitlab_rails['registry_enabled'] = true
+        
+        # CI/CD Configuration
+        gitlab_ci['enable'] = true
+        
+        # Performance tuning (adjusts automatically)
+        unicorn['worker_processes'] = 2
+        sidekiq['max_concurrency'] = 25
+        
+        # Universal paths
+        gitlab_rails['artifacts_enabled'] = true
+        gitlab_rails['lfs_enabled'] = true
+        gitlab_rails['backup_keep_time'] = 604800
+        
+        # Disable components to save resources
+        prometheus_monitoring['enable'] = false
+        grafana['enable'] = false
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    shm_size: '256m'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/opt/gitlab/bin/gitlab-healthcheck", "--fail", "--max-time", "10"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 180s
+
+  # =============================================================================
+  # CD SERVICES (Platform Independent)
+  # =============================================================================
+
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: jenkins-master
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${JENKINS_HTTP_PORT:-8080}:8080"
+      - "${JENKINS_AGENT_PORT:-50000}:50000"
+    environment:
+      JENKINS_OPTS: >-
+        --httpPort=8080
+        --prefix=/jenkins
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=false
+        -Djava.awt.headless=true
+        -Xmx2g
+        -Xms512m
+        -XX:+UseG1GC
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=80
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
+    volumes:
+      - jenkins-data:/var/jenkins_home
+      # Cross-platform Docker access
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./jenkins-config:/usr/share/jenkins/ref/:ro
+      - ./ml-models:/opt/ml-models:rw
+      - ./scripts:/opt/scripts:ro
+    user: "1000:1000"  # Works on both platforms with proper setup
+    depends_on:
+      - postgres
+      - gitlab
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/jenkins/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ==============================
+  # KUBERNETES (Platform Adaptive)
+  # ==============================
+
+  kubernetes-cluster:
+    image: kindest/node:v1.28.0
+    container_name: k8s-cluster
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${K8S_API_PORT:-6443}:6443"
+      - "30000-30100:30000-30100"  # NodePort range
+    privileged: true
+    environment:
+      KUBECONFIG: /etc/kubernetes/admin.conf
+      KIND_EXPERIMENTAL_PROVIDER: ${CONTAINER_RUNTIME:-docker}
+      # GPU support (auto-detected)
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+    volumes:
+      - ./k8s-manifests:/manifests:ro
+      - ./ml-models:/models:rw
+      # Platform-adaptive device mounting
+      - /dev:/dev:ro
+      - /lib/modules:/lib/modules:ro
+    healthcheck:
+      test: ["CMD", "kubectl", "cluster-info", "--kubeconfig", "/etc/kubernetes/admin.conf"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # =============================================================================
+  # MONITORING (Platform Independent)
+  # =============================================================================
+
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    container_name: prometheus
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    environment:
+      # Platform-adaptive configuration
+      PROMETHEUS_STORAGE_TSDB_PATH: /prometheus
+      PROMETHEUS_STORAGE_TSDB_RETENTION_TIME: ${PROMETHEUS_RETENTION:-15d}
+    volumes:
+      - prometheus-data:/prometheus
+      - ./monitoring/prometheus-universal.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      # Platform-independent configuration
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel
+      GF_RENDERING_SERVER_URL: http://grafana-renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/
+      GF_LOG_FILTERS: rendering:debug
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Universal Node Exporter (adapts to platform)
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: node-exporter
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    environment:
+      # Platform detection handled by image
+      NODE_ID: ${HOSTNAME:-unknown}
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /etc/hostname:/etc/nodename:ro
+      - /etc/localtime:/etc/localtime:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.textfile.directory=/etc/node-exporter/'
+      - '--no-collector.ipvs'
+
+  # =============================================================================
+  # ML SERVICES (Platform Independent)
+  # =============================================================================
+
+  mlflow:
+    image: python:3.11-slim
+    container_name: mlflow-server
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:${POSTGRES_PASSWORD_MLFLOW:-mlflowpass}@postgres:5432/mlflow
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+      MLFLOW_HOST: 0.0.0.0
+      MLFLOW_PORT: 5000
+      MLFLOW_WORKERS: ${MLFLOW_WORKERS:-2}
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+      - ./ml-models:/models:rw
+      - ./scripts/mlflow-entrypoint.sh:/entrypoint.sh:ro
+    command: >
+      bash -c "
+      pip install --no-cache-dir mlflow[extras]==2.8.1 psycopg2-binary boto3 &&
+      mlflow server 
+        --backend-store-uri postgresql://mlflow:${POSTGRES_PASSWORD_MLFLOW:-mlflowpass}@postgres:5432/mlflow
+        --default-artifact-root /mlflow/artifacts
+        --host 0.0.0.0
+        --port 5000
+        --workers ${MLFLOW_WORKERS:-2}
+        --gunicorn-opts '--timeout 60'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Universal TensorBoard
+  tensorboard:
+    image: tensorflow/tensorflow:2.14.0
+    container_name: tensorboard
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${TENSORBOARD_PORT:-6006}:6006"
+    environment:
+      TENSORBOARD_LOG_DIR: /logs
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+    volumes:
+      - ./volumes/tensorboard:/logs:rw
+      - ./ml-models:/models:ro
+    command: >
+      tensorboard 
+        --logdir=/logs 
+        --host=0.0.0.0 
+        --port=6006 
+        --reload_interval=30
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6006"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # GPU SERVICES (Auto-detecting)
+  # =============================================================================
+
+  # Universal GPU monitoring (adapts to NVIDIA/AMD/Intel)
+  gpu-exporter:
+    image: mindprince/nvidia_gpu_prometheus_exporter:0.1
+    container_name: gpu-exporter
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${GPU_EXPORTER_PORT:-9445}:9445"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Remove profiles section for compatibility
+
+  # =============================================================================
+  # UTILITY SERVICES (Platform Independent)  
+  # =============================================================================
+
+  registry:
+    image: registry:2.8.3
+    container_name: docker-registry
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${REGISTRY_PORT:-5555}:5000"  # Changed from 5000 to 5555 to avoid conflict with MLflow
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+      REGISTRY_STORAGE_DELETE_ENABLED: true
+    volumes:
+      - registry-data:/var/lib/registry
+      - ./auth/registry:/auth:ro
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/v2/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Universal database admin interface
+  pgadmin:
+    image: dpage/pgadmin4:7.8
+    container_name: pgadmin
+    restart: unless-stopped
+    networks:
+      - devops-network
+    environment:
+      PGLADMIN_DEFAULT_EMAIL: ${PGLADMIN_EMAIL:-admin@admin.com}
+      PGLADMIN_DEFAULT_PASSWORD: ${PGLADMIN_PASSWORD:-admin}
+      PGLADMIN_CONFIG_SERVER_MODE: 'False'
+      PGLADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    ports:
+      - "${PGLADMIN_PORT:-5050}:80"
+    volumes:
+      - ./volumes/pgladmin:/var/lib/pgladmin:rw
+    depends_on:
+      - postgres
+
+  # Universal development environment
+  jupyterhub:
+    image: quay.io/jupyterhub/jupyterhub:4.0.2
+    container_name: jupyterhub
+    restart: unless-stopped
+    networks:
+      - devops-network
+    ports:
+      - "${JUPYTERHUB_PORT:-8888}:8000"
+    environment:
+      JUPYTERHUB_ADMIN_USER: ${JUPYTERHUB_ADMIN_USER:-admin}
+      DOCKER_JUPYTER_CONTAINER: ${JUPYTER_CONTAINER:-quay.io/jupyter/tensorflow-notebook:latest}
+      DOCKER_NETWORK_NAME: ${COMPOSE_PROJECT_NAME:-devops}_devops-network
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+    volumes:
+      - jupyterhub-data:/srv/jupyterhub
+      - ./ml-models:/home/shared/models:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./jupyter-config:/srv/jupyterhub/config:ro
+    command: >
+      bash -c "
+      pip install --no-cache-dir dockerspawner &&
+      jupyterhub --config /srv/jupyterhub/config/jupyterhub_config.py
+      "
+
+# =============================================================================
+# CONDITIONAL SERVICE CONFIGURATIONS
+# =============================================================================
+
+# Note: Profiles require Docker Compose v1.28.0+ or Docker Compose v2
+# For older versions, services can be controlled via environment variables
+# Example: COMPOSE_PROFILES=gpu docker-compose up -d

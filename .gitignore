@@ -1,0 +1,8 @@
+/volumes/
+/setup.log
+/logs/
+/backups/
+/data/
+/k8s-manifests/
+/auth/registry/
+/certs/
