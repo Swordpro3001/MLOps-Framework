@@ -274,8 +274,6 @@ start_services() {
 ./setup.sh status     # Service-Status anzeigen
 ./setup.sh logs       # Logs anzeigen
 ./setup.sh update     # Services aktualisieren
-./setup.sh config     # Konfiguration anzeigen
-./setup.sh validate   # Konfiguration validieren
 ./setup.sh clean      # Alles löschen
 ./setup.sh help       # Hilfe anzeigen
 ```
