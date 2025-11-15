@@ -6,3 +6,7 @@
 /k8s-manifests/
 /auth/registry/
 /certs/
+
+# Environment files (keep template but ignore actual config)
+.env
+!.env.template

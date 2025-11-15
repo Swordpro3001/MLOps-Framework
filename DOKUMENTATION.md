@@ -135,13 +135,28 @@ services:
 
 ### Umgebungsvariablen
 
-Das Framework verwendet eine `.env`-Datei für Konfiguration:
+Das Framework verwendet eine zentrale `.env`-Datei für alle Konfigurationen:
+
+#### Konfigurationsstruktur
+
+**1. Template-Datei (`.env.template`)**
+- Enthält alle verfügbaren Konfigurationsoptionen
+- Wird im Repository gespeichert
+- Dient als Vorlage für neue Installationen
+
+**2. Aktuelle Konfiguration (`.env`)**
+- Wird automatisch vom Setup-Script erstellt
+- Enthält plattformspezifische Einstellungen
+- Wird in `.gitignore` ausgeschlossen (Sicherheit)
+
+#### Konfigurationskategorien
 
 ```bash
-# Plattform-Erkennung
+# Plattform-Erkennung (automatisch gesetzt)
 DETECTED_PLATFORM=linux
 DETECTED_ARCHITECTURE=amd64
 GPU_AVAILABLE=true
+WSL_DETECTED=false
 
 # Service-Ports
 POSTGRES_PORT=55432
@@ -161,6 +176,19 @@ GITLAB_ROOT_PASSWORD=rootpassword123
 JENKINS_ADMIN_USER=admin
 JENKINS_ADMIN_PASSWORD=admin
 # ... weitere Credentials
+```
+
+#### Konfigurationsverwaltung
+
+```bash
+# Konfiguration anzeigen
+./setup.sh config
+
+# Konfiguration validieren
+./setup.sh validate
+
+# Template zurücksetzen
+cp .env.template .env
 ```
 
 ## Setup Script
@@ -249,6 +277,21 @@ start_services() {
 ./setup.sh clean      # Alles löschen
 ./setup.sh help       # Hilfe anzeigen
 ```
+
+#### Konfigurationsverwaltung
+
+Das Setup-Script bietet erweiterte Konfigurationsverwaltung:
+
+**Automatische Konfiguration:**
+- Erstellt `.env.template` beim ersten Lauf
+- Kopiert Template zu `.env` falls nicht vorhanden
+- Aktualisiert nur plattformspezifische Variablen
+- Behält benutzerdefinierte Einstellungen bei
+
+**Konfigurationsvalidierung:**
+- Prüft auf fehlende erforderliche Variablen
+- Zeigt aktuelle Konfiguration an
+- Warnt bei inkonsistenten Einstellungen
 
 ## Services im Detail
 
@@ -706,8 +749,51 @@ tar czf config-backup.tar.gz docker-compose.yaml .env monitoring/
 
 ---
 
+## Optimierungen und Best Practices
+
+### Zentralisierte Konfiguration
+
+Das Framework wurde optimiert, um Redundanzen zu vermeiden:
+
+**Vorher:**
+- Konfiguration sowohl in `setup.sh` als auch in `.env`
+- Duplikation von Einstellungen
+- Schwierige Wartung bei Änderungen
+
+**Nachher:**
+- Zentrale `.env.template` als einzige Quelle der Wahrheit
+- Setup-Script aktualisiert nur plattformspezifische Variablen
+- Benutzerdefinierte Einstellungen bleiben erhalten
+- Einfache Wartung und Erweiterung
+
+### Konfigurationsverwaltung
+
+```bash
+# 1. Template erstellen (automatisch beim ersten Lauf)
+./setup.sh install
+
+# 2. Konfiguration anpassen
+nano .env
+
+# 3. Konfiguration validieren
+./setup.sh validate
+
+# 4. Aktuelle Einstellungen anzeigen
+./setup.sh config
+
+# 5. Template zurücksetzen (falls nötig)
+cp .env.template .env
+```
+
+### Sicherheitsaspekte
+
+- `.env`-Datei ist in `.gitignore` ausgeschlossen
+- `.env.template` enthält keine sensiblen Daten
+- Plattformspezifische Einstellungen werden automatisch gesetzt
+- Benutzer können sichere Passwörter in `.env` setzen
+
 ## Fazit
 
 Das ML DevOps Framework bietet eine vollständige, plattformübergreifende Lösung für Machine Learning DevOps. Mit automatischer Plattform-Erkennung, umfassendem Monitoring und GPU-Unterstützung ist es sowohl für Entwicklung als auch für Produktion geeignet.
 
-Die modulare Architektur ermöglicht einfache Erweiterungen und Anpassungen, während das universelle Setup-Script die Komplexität der Konfiguration abstrahiert.
+Die modulare Architektur ermöglicht einfache Erweiterungen und Anpassungen, während das universelle Setup-Script die Komplexität der Konfiguration abstrahiert. Die zentralisierte Konfigurationsverwaltung eliminiert Redundanzen und macht das Framework wartungsfreundlicher.
