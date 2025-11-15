@@ -143,11 +143,8 @@ REM ============================================================================
     )
     
     set /a attempts+=1
-    if !attempts! equ 10 call :log "INFO" "Still waiting for database... (!attempts!/!max_attempts!)"
-    if !attempts! equ 20 call :log "INFO" "Still waiting for database... (!attempts!/!max_attempts!)"
-    if !attempts! equ 30 call :log "INFO" "Still waiting for database... (!attempts!/!max_attempts!)"
-    if !attempts! equ 40 call :log "INFO" "Still waiting for database... (!attempts!/!max_attempts!)"
-    if !attempts! equ 50 call :log "INFO" "Still waiting for database... (!attempts!/!max_attempts!)"
+    set /a mod_attempts=!attempts! %% 10
+    if !mod_attempts! equ 0 call :log "INFO" "Still waiting for database... (!attempts!/!max_attempts!)"
     
     timeout /t 5 /nobreak >nul
     goto :wait_postgres
