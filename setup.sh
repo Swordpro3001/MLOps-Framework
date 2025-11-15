@@ -110,9 +110,15 @@ check_env() {
     log "INFO" "Checking environment configuration..."
     
     if [[ ! -f .env ]]; then
-        log "ERROR" ".env file not found!"
-        log "ERROR" "Please copy .env.example to .env and configure your settings."
-        exit 1
+        if [[ -f .env.example ]]; then
+            cp .env.example .env
+            log "WARNING" ".env file not found. Auto-copied .env.example to .env."
+            log "WARNING" "Please review and edit .env to configure your settings."
+        else
+            log "ERROR" ".env file not found and .env.example is missing!"
+            log "ERROR" "Please provide a .env file or .env.example template."
+            exit 1
+        fi
     fi
     
     log "SUCCESS" "Environment file found"
