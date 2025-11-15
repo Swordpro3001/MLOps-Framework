@@ -160,8 +160,6 @@ start_services() {
         "postgres-db"
         "${COMPOSE_PROJECT_NAME:-ml-devops}_postgres-db_1"
         "${COMPOSE_PROJECT_NAME:-ml-devops}-postgres-db-1"
-        "ml-devops_postgres-db_1"
-        "ml-devops-postgres-db-1"
     )
     
     while [[ $attempts -lt $max_attempts ]] && ! $postgres_ready; do
