@@ -29,6 +29,11 @@ log() {
         "SUCCESS") echo "[SUCCESS] $message" ;;
         "WARNING") echo "[WARNING] $message" ;;
         "ERROR") echo "[ERROR] $message" ;;
+        "DEBUG")
+            if [[ "${DEBUG:-}" == "true" ]]; then
+                echo "[DEBUG] $message"
+            fi
+            ;;
     esac
     
     echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
