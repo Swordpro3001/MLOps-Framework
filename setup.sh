@@ -58,24 +58,7 @@ detect_platform() {
     log "SUCCESS" "Platform: $PLATFORM, Architecture: $ARCHITECTURE"
 }
 
-check_prerequisites() {
-    log "INFO" "Checking prerequisites..."
-    
-    local missing=()
-    command -v docker >/dev/null || missing+=("docker")
-    command -v git >/dev/null || missing+=("git")
-    
-    if ! command -v docker-compose >/dev/null && ! docker compose version >/dev/null 2>&1; then
-        missing+=("docker-compose")
-    fi
-    
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        log "ERROR" "Missing: ${missing[*]}"
-        exit 1
-    fi
-    
-    log "SUCCESS" "Prerequisites satisfied"
-}
+
 
 detect_gpu() {
     log "INFO" "Detecting GPU..."
@@ -110,186 +93,32 @@ detect_container_runtime() {
 }
 
 create_directories() {
-    log "INFO" "Creating directories..."
+    log "INFO" "Creating necessary directories..."
     
     local dirs=(
-        "volumes/postgres" "volumes/jenkins" "volumes/gitlab" "volumes/teamcity"
-        "volumes/prometheus" "volumes/grafana" "volumes/mlflow" "volumes/redis"
-        "k8s-manifests" "ml-models" "scripts" "logs" "backups"
-        "monitoring/grafana/dashboards" "monitoring/grafana/provisioning"
-        "auth/registry" "certs"
+        "logs"
     )
     
     for dir in "${dirs[@]}"; do
         mkdir -p "$dir"
     done
     
-    log "SUCCESS" "Directories created"
+    log "SUCCESS" "Directories ready"
 }
 
-generate_env() {
-    log "INFO" "Generating .env file..."
+check_env() {
+    log "INFO" "Checking environment configuration..."
     
-    # Only generate if .env doesn't exist
-    if [[ -f .env ]]; then
-        log "INFO" "Using existing .env file"
-        return 0
+    if [[ ! -f .env ]]; then
+        log "ERROR" ".env file not found!"
+        log "ERROR" "Please copy .env.example to .env and configure your settings."
+        exit 1
     fi
     
-    # Create .env with detected values
-    cat > .env << EOF
-# Universal ML DevOps Framework Configuration
-# Auto-generated on $(date)
-# Platform: $PLATFORM, Architecture: $ARCHITECTURE
-
-# =============================================================================
-# PLATFORM DETECTION
-# =============================================================================
-DETECTED_PLATFORM=$PLATFORM
-DETECTED_ARCHITECTURE=$ARCHITECTURE
-WSL_DETECTED=$WSL_DETECTED
-GPU_AVAILABLE=$GPU_AVAILABLE
-CONTAINER_RUNTIME=$CONTAINER_RUNTIME
-
-# =============================================================================
-# CORE SERVICE PORTS
-# =============================================================================
-POSTGRES_PORT=55432
-REDIS_PORT=6379
-TEAMCITY_PORT=8111
-GITLAB_HTTP_PORT=8929
-GITLAB_HTTPS_PORT=8443
-GITLAB_SSH_PORT=2222
-GITLAB_REGISTRY_PORT=5555
-JENKINS_HTTP_PORT=8080
-JENKINS_AGENT_PORT=50000
-K8S_API_PORT=6443
-PROMETHEUS_PORT=9090
-GRAFANA_PORT=3000
-MLFLOW_PORT=5000
-TENSORBOARD_PORT=6006
-REGISTRY_PORT=5000
-PGLADMIN_PORT=5050
-JUPYTERHUB_PORT=8888
-NODE_EXPORTER_PORT=9100
-GPU_EXPORTER_PORT=9445
-
-# =============================================================================
-# DATABASE CONFIGURATION
-# =============================================================================
-POSTGRES_ROOT_PASSWORD=rootpass
-POSTGRES_DB_TEAMCITY=teamcity
-POSTGRES_USER_TEAMCITY=teamcity
-POSTGRES_PASSWORD_TEAMCITY=teamcitypass
-POSTGRES_DB_GITLAB=gitlabhq_production
-POSTGRES_USER_GITLAB=gitlab
-POSTGRES_PASSWORD_GITLAB=gitlabpass
-POSTGRES_DB_MLFLOW=mlflow
-POSTGRES_USER_MLFLOW=mlflow
-POSTGRES_PASSWORD_MLFLOW=mlflowpass
-
-# =============================================================================
-# SERVICE AUTHENTICATION
-# =============================================================================
-GITLAB_ROOT_PASSWORD=rootpassword123
-GITLAB_HOST=localhost
-JENKINS_ADMIN_USER=admin
-JENKINS_ADMIN_PASSWORD=admin
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=admin
-PGLADMIN_EMAIL=admin@admin.com
-PGLADMIN_PASSWORD=admin
-JUPYTERHUB_ADMIN_USER=admin
-REDIS_PASSWORD=redispass
-
-# =============================================================================
-# ML CONFIGURATION
-# =============================================================================
-MLFLOW_WORKERS=2
-JUPYTER_CONTAINER=quay.io/jupyter/tensorflow-notebook:latest
-MODEL_REGISTRY_URL=localhost:5000
-
-# GPU Configuration
-NVIDIA_VISIBLE_DEVICES=${GPU_AVAILABLE:+all}
-NVIDIA_DRIVER_CAPABILITIES=${GPU_AVAILABLE:+compute,utility}
-CUDA_VERSION=11.8
-
-# =============================================================================
-# MONITORING CONFIGURATION
-# =============================================================================
-PROMETHEUS_RETENTION=15d
-GRAFANA_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
-
-# =============================================================================
-# DEVELOPMENT CONFIGURATION
-# =============================================================================
-DEBUG=false
-LOG_LEVEL=INFO
-COMPOSE_PROJECT_NAME=ml-devops
-COMPOSE_HTTP_TIMEOUT=120
-
-# =============================================================================
-# PERFORMANCE TUNING
-# =============================================================================
-POSTGRES_SHARED_BUFFERS=256MB
-POSTGRES_MAX_CONNECTIONS=100
-JENKINS_JAVA_OPTS="-Xmx2g -Xms512m"
-GITLAB_MEMORY_LIMIT=4g
-TEAMCITY_MEMORY_LIMIT=2g
-
-# =============================================================================
-# PLATFORM-SPECIFIC CONFIGURATIONS
-# =============================================================================
-DOCKER_SOCKET_PATH=/var/run/docker.sock
-EOF
-
-    # Add platform-specific configurations
-    case $PLATFORM in
-        windows)
-            echo "WINDOWS_HOST=true" >> .env
-            ;;
-        macos)
-            echo "MACOS_HOST=true" >> .env
-            ;;
-    esac
-    
-    log "SUCCESS" "Environment file generated"
+    log "SUCCESS" "Environment file found"
 }
 
-copy_configs() {
-    log "INFO" "Copying configuration files..."
-    
-    # Check if config files exist, if not create minimal versions
-    if [[ ! -f "docker-compose.yaml" ]]; then
-        log "WARNING" "docker-compose.yaml not found, using provided version"
-    fi
-    
-    if [[ ! -f "monitoring/prometheus-universal.yml" ]]; then
-        log "WARNING" "Prometheus config not found, using provided version"
-    fi
-    
-    if [[ ! -f "init-db/init.sql" ]]; then
-        log "WARNING" "Database init script not found, using provided version"
-    fi
-    
-    log "SUCCESS" "Configuration files ready"
-}
 
-setup_permissions() {
-    log "INFO" "Setting permissions..."
-    
-    case $PLATFORM in
-        linux)
-            find scripts -name "*.sh" -exec chmod +x {} \; 2>/dev/null || true
-            find ml-models -name "*.py" -exec chmod +x {} \; 2>/dev/null || true
-            ;;
-        *)
-            log "INFO" "Permissions handled by Docker Desktop"
-            ;;
-    esac
-    
-    log "SUCCESS" "Permissions set"
-}
 
 start_services() {
     log "INFO" "Starting services..."
@@ -374,13 +203,13 @@ start_services() {
     fi
     
     log "INFO" "Starting application services..."
-    if ! $compose_cmd up -d teamcity-server gitlab jenkins prometheus grafana mlflow; then
+    if ! $compose_cmd up -d gitlab jenkins prometheus grafana mlflow; then
         log "WARNING" "Some application services failed to start"
         $compose_cmd ps
     fi
     
     log "INFO" "Starting remaining services..."
-    $compose_cmd up -d teamcity-agent tensorboard node-exporter
+    $compose_cmd up -d tensorboard node-exporter
     
     # Start GPU services if available
     if [[ "${GPU_AVAILABLE:-false}" == "true" ]]; then
@@ -418,9 +247,8 @@ show_status() {
     
     echo ""
     echo "Access URLs:"
-    echo "- TeamCity:    http://localhost:${TEAMCITY_PORT:-8111}"
+    echo "- Jenkins:     http://localhost:${JENKINS_PORT:-8080} (${JENKINS_ADMIN_USER:-admin}/${JENKINS_ADMIN_PASSWORD:-admin})"
     echo "- GitLab:      http://localhost:${GITLAB_HTTP_PORT:-8929} (root/${GITLAB_ROOT_PASSWORD:-rootpassword123})"
-    echo "- Jenkins:     http://localhost:${JENKINS_HTTP_PORT:-8080} (${JENKINS_ADMIN_USER:-admin}/${JENKINS_ADMIN_PASSWORD:-admin})"
     echo "- Prometheus:  http://localhost:${PROMETHEUS_PORT:-9090}"
     echo "- Grafana:     http://localhost:${GRAFANA_PORT:-3000} (${GRAFANA_ADMIN_USER:-admin}/${GRAFANA_ADMIN_PASSWORD:-admin})"
     echo "- MLflow:      http://localhost:${MLFLOW_PORT:-5000}"
@@ -436,17 +264,15 @@ show_status() {
 # =============================================================================
 
 install() {
-    echo "ML DevOps Framework Universal Setup"
-    echo "=================================="
+    echo "ML DevOps Framework Setup"
+    echo "========================="
+    echo ""
     
     detect_platform
-    check_prerequisites
+    check_env
     detect_gpu
     detect_container_runtime
     create_directories
-    generate_env
-    copy_configs
-    setup_permissions
     start_services
     
     echo ""
