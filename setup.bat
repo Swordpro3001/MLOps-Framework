@@ -132,10 +132,22 @@ REM ============================================================================
     set /a max_attempts=60
     set "postgres_ready=false"
     
+    REM Detect running Postgres container name (similar to setup.sh)
+    for /f "tokens=*" %%i in ('docker ps --format "{{.Names}}" ^| findstr /i "postgres"') do (
+        set "POSTGRES_CONTAINER=%%i"
+        goto :found_postgres_container
+    )
+    set "POSTGRES_CONTAINER="
+    :found_postgres_container
+    if not defined POSTGRES_CONTAINER (
+        call :log "ERROR" "Could not find a running Postgres container"
+        exit /b 1
+    )
+    
     :wait_postgres
     if !attempts! geq !max_attempts! goto :postgres_timeout
     
-    docker exec postgres-db pg_isready -U postgres >nul 2>&1
+    docker exec !POSTGRES_CONTAINER! pg_isready -U postgres >nul 2>&1
     if not errorlevel 1 (
         call :log "SUCCESS" "Database is ready"
         set "postgres_ready=true"
