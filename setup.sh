@@ -179,7 +179,7 @@ start_services() {
         
         if ! $postgres_ready; then
             ((attempts++))
-            if [[ $((attempts % 10)) -eq 0 ]]; then
+            if [[ $attempts -eq 1 || $((attempts % 5)) -eq 0 ]]; then
                 log "INFO" "Still waiting for database... ($attempts/$max_attempts)"
                 # Show container status for debugging
                 log "INFO" "Container status:"
