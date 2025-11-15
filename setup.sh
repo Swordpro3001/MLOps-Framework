@@ -228,8 +228,6 @@ load_env() {
         source .env
         set +a  # disable automatic export
         log "INFO" "Loaded configuration from .env"
-    else
-        log "WARNING" ".env file not found, using defaults"
     fi
 }
 
