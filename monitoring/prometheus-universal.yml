@@ -86,6 +86,18 @@ scrape_configs:
           service: 'tensorboard'
 
   # Docker containers metrics (if available)
+  # NOTE: Requires Docker's experimental metrics feature to be enabled.
+  # This is NOT enabled by default and requires manual configuration.
+  # To enable, add to your Docker daemon configuration file:
+  #   Linux: /etc/docker/daemon.json
+  #   Windows: %programdata%\docker\config\daemon.json
+  #   macOS: ~/.docker/daemon.json
+  # Add the following configuration:
+  #   {
+  #     "metrics-addr": "0.0.0.0:9323",
+  #     "experimental": true
+  #   }
+  # Then restart Docker daemon to apply changes.
   - job_name: 'docker'
     static_configs:
       - targets: ['host.docker.internal:9323']
