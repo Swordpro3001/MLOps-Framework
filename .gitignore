@@ -6,7 +6,9 @@
 /k8s-manifests/
 /auth/registry/
 /certs/
-
+/auth/
+/jenkins-config/
 # Environment files (keep template but ignore actual config)
-.env
+/.env
 !.env.template
+setup.bat.old

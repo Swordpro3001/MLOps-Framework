@@ -1,0 +1,100 @@
+# Prometheus Configuration for ML DevOps Framework
+# Universal configuration for monitoring all services
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'ml-devops'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Node Exporter - System metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+          instance: 'ml-devops-host'
+
+  # PostgreSQL Database
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+        labels:
+          service: 'postgres'
+
+  # Redis Cache
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+        labels:
+          service: 'redis'
+
+  # Jenkins CI/CD
+  - job_name: 'jenkins'
+    metrics_path: '/prometheus'
+    static_configs:
+      - targets: ['jenkins:8080']
+        labels:
+          service: 'jenkins'
+
+  # GitLab
+  - job_name: 'gitlab'
+    static_configs:
+      - targets: ['gitlab:8929']
+        labels:
+          service: 'gitlab'
+
+  # MLflow Tracking Server
+  - job_name: 'mlflow'
+    static_configs:
+      - targets: ['mlflow:5000']
+        labels:
+          service: 'mlflow'
+
+  # Grafana
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+
+  # TensorBoard
+  - job_name: 'tensorboard'
+    static_configs:
+      - targets: ['tensorboard:6006']
+        labels:
+          service: 'tensorboard'
+
+  # Docker containers metrics (if available)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:9323']
+        labels:
+          service: 'docker'
+
+  # GPU Exporter (if available)
+  - job_name: 'gpu-exporter'
+    static_configs:
+      - targets: ['gpu-exporter:9445']
+        labels:
+          service: 'gpu-exporter'

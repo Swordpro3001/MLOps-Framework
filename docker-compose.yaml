@@ -186,7 +186,7 @@ services:
         gitlab_ci['enable'] = true
         
         # Performance tuning (adjusts automatically)
-        unicorn['worker_processes'] = 2
+        puma['worker_processes'] = 2
         sidekiq['max_concurrency'] = 25
         
         # Universal paths
@@ -223,12 +223,11 @@ services:
     networks:
       - devops-network
     ports:
-      - "${JENKINS_HTTP_PORT:-8080}:8080"
+      - "${JENKINS_PORT:-8081}:8080"
       - "${JENKINS_AGENT_PORT:-50000}:50000"
     environment:
       JENKINS_OPTS: >-
         --httpPort=8080
-        --prefix=/jenkins
       JAVA_OPTS: >-
         -Djenkins.install.runSetupWizard=false
         -Djava.awt.headless=true
