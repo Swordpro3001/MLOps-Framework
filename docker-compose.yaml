@@ -227,7 +227,7 @@ services:
       - "${JENKINS_AGENT_PORT:-50000}:50000"
     environment:
       JENKINS_OPTS: >-
-        --httpPort=8080
+        --httpPort=8080 --prefix=/jenkins
       JAVA_OPTS: >-
         -Djenkins.install.runSetupWizard=false
         -Djava.awt.headless=true
