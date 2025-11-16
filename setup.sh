@@ -236,15 +236,22 @@ start_services() {
         if docker exec gitlab gitlab-rails runner "User.find_by(username: 'root')" >/dev/null 2>&1; then
             log "SUCCESS" "GitLab root user already exists"
             gitlab_configured=true
-        elif docker exec gitlab gitlab-rails runner "user = User.new(username: 'root', email: 'admin@example.com', name: 'Administrator', admin: true, password: '${GITLAB_ROOT_PASSWORD:-rootpassword123}', password_confirmation: '${GITLAB_ROOT_PASSWORD:-rootpassword123}'); user.skip_confirmation!; user.save!(validate: false); puts 'Root user created'" >/dev/null 2>&1; then
-            log "SUCCESS" "GitLab root user created successfully"
-            gitlab_configured=true
         else
-            ((gitlab_attempts++))
-            if [[ $((gitlab_attempts % 5)) -eq 0 ]]; then
-                log "INFO" "Waiting for GitLab to be ready... ($gitlab_attempts/$gitlab_max_attempts)"
+            # Try to create the root user and capture error output
+            gitlab_create_output=$(docker exec gitlab gitlab-rails runner "user = User.new(username: 'root', email: 'admin@example.com', name: 'Administrator', admin: true, password: '${GITLAB_ROOT_PASSWORD:-rootpassword123}', password_confirmation: '${GITLAB_ROOT_PASSWORD:-rootpassword123}'); user.skip_confirmation!; user.save!(validate: false); puts 'Root user created'" 2>&1)
+            if echo "$gitlab_create_output" | grep -q "Root user created"; then
+                log "SUCCESS" "GitLab root user created successfully"
+                gitlab_configured=true
+            elif echo "$gitlab_create_output" | grep -E -q "Validation failed|syntax error|ActiveRecord::RecordInvalid"; then
+                log "ERROR" "Persistent error while creating GitLab root user: $gitlab_create_output"
+                break
+            else
+                ((gitlab_attempts++))
+                if [[ $((gitlab_attempts % 5)) -eq 0 ]]; then
+                    log "INFO" "Waiting for GitLab to be ready... ($gitlab_attempts/$gitlab_max_attempts)"
+                fi
+                sleep 5
             fi
-            sleep 10
         fi
     done
     
