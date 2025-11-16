@@ -225,6 +225,33 @@ start_services() {
         $compose_cmd up -d gpu-exporter 2>/dev/null || log "WARNING" "GPU services not available"
     fi
     
+    # Configure GitLab root user
+    log "INFO" "Configuring GitLab root user..."
+    sleep 10
+    local gitlab_configured=false
+    local gitlab_attempts=0
+    local gitlab_max_attempts=30
+    
+    while [[ $gitlab_attempts -lt $gitlab_max_attempts ]] && ! $gitlab_configured; do
+        if docker exec gitlab gitlab-rails runner "User.find_by(username: 'root')" >/dev/null 2>&1; then
+            log "SUCCESS" "GitLab root user already exists"
+            gitlab_configured=true
+        elif docker exec gitlab gitlab-rails runner "user = User.new(username: 'root', email: 'admin@example.com', name: 'Administrator', admin: true, password: '${GITLAB_ROOT_PASSWORD:-rootpassword123}', password_confirmation: '${GITLAB_ROOT_PASSWORD:-rootpassword123}'); user.skip_confirmation!; user.save!(validate: false); puts 'Root user created'" >/dev/null 2>&1; then
+            log "SUCCESS" "GitLab root user created successfully"
+            gitlab_configured=true
+        else
+            ((gitlab_attempts++))
+            if [[ $((gitlab_attempts % 5)) -eq 0 ]]; then
+                log "INFO" "Waiting for GitLab to be ready... ($gitlab_attempts/$gitlab_max_attempts)"
+            fi
+            sleep 10
+        fi
+    done
+    
+    if ! $gitlab_configured; then
+        log "WARNING" "Could not configure GitLab root user automatically. You may need to set it manually."
+    fi
+    
     log "SUCCESS" "Services started"
     
     # Show final status
