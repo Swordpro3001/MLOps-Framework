@@ -1,6 +1,6 @@
 -- Universal Database Initialization Script
 
--- Create GitLab database and user  
+-- Create GitLab database and user
 CREATE DATABASE gitlabhq_production;
 CREATE USER gitlab WITH ENCRYPTED PASSWORD 'gitlabpass';
 GRANT ALL PRIVILEGES ON DATABASE gitlabhq_production TO gitlab;
