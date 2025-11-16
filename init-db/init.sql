@@ -2,12 +2,12 @@
 
 -- Create GitLab database and user
 CREATE DATABASE gitlabhq_production;
-CREATE USER gitlab WITH ENCRYPTED PASSWORD 'gitlabpass';
+CREATE USER gitlab WITH ENCRYPTED PASSWORD '${POSTGRES_PASSWORD_GITLAB}';
 GRANT ALL PRIVILEGES ON DATABASE gitlabhq_production TO gitlab;
 
 -- Create MLflow database and user
 CREATE DATABASE mlflow;
-CREATE USER mlflow WITH ENCRYPTED PASSWORD 'mlflowpass';
+CREATE USER mlflow WITH ENCRYPTED PASSWORD '${POSTGRES_PASSWORD_MLFLOW}';
 GRANT ALL PRIVILEGES ON DATABASE mlflow TO mlflow;
 
 -- Switch to GitLab database for extensions
