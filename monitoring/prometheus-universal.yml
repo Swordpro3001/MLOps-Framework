@@ -35,17 +35,17 @@ scrape_configs:
           service: 'node-exporter'
           instance: 'ml-devops-host'
 
-  # PostgreSQL Database
+  # PostgreSQL Database Metrics
   - job_name: 'postgres'
     static_configs:
-      - targets: ['postgres:5432']
+      - targets: ['postgres-exporter:9187']
         labels:
           service: 'postgres'
 
-  # Redis Cache
+  # Redis Cache Metrics
   - job_name: 'redis'
     static_configs:
-      - targets: ['redis:6379']
+      - targets: ['redis-exporter:9121']
         labels:
           service: 'redis'
 

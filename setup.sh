@@ -218,7 +218,7 @@ start_services() {
     fi
     
     log "INFO" "Starting remaining services..."
-    $compose_cmd up -d tensorboard node-exporter
+    $compose_cmd up -d tensorboard node-exporter postgres-exporter redis-exporter
     
     # Start GPU services if available
     if [[ "${GPU_AVAILABLE:-false}" == "true" ]]; then
