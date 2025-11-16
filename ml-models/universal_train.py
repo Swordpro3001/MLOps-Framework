@@ -62,57 +62,63 @@ def train_model():
     mlflow.set_tracking_uri(os.getenv('MLFLOW_TRACKING_URI', 'http://localhost:5000'))
     mlflow.set_experiment('universal-ml-experiment')
     
-    with mlflow.start_run():
-        # Log environment info
-        mlflow.log_params(env_info)
-        
-        # Generate sample data
-        print("📊 Generating sample dataset...")
-        X, y = make_classification(
-            n_samples=1000,
-            n_features=10,
-            n_informative=5,
-            n_redundant=2,
-            n_classes=2,
-            random_state=42
-        )
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
-        
-        # Train model
-        print("🤖 Training model...")
-        model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=10,
-            random_state=42
-        )
-        model.fit(X_train, y_train)
-        
-        # Evaluate model
-        y_pred = model.predict(X_test)
-        accuracy = accuracy_score(y_test, y_pred)
-        
-        # Log results
-        mlflow.log_metric('accuracy', accuracy)
-        mlflow.log_metric('train_samples', len(X_train))
-        mlflow.log_metric('test_samples', len(X_test))
-        
-        # Log model
-        mlflow.sklearn.log_model(
-            model,
-            "random_forest_model",
-            registered_model_name="universal-ml-model"
-        )
-        
-        print(f"✅ Model trained successfully!")
-        print(f"📈 Accuracy: {accuracy:.4f}")
-        print(f"🔍 Classification Report:")
-        print(classification_report(y_test, y_pred))
-        
-        return accuracy
+    try:
+        with mlflow.start_run():
+            # Log environment info
+            mlflow.log_params(env_info)
+            
+            # Generate sample data
+            print("📊 Generating sample dataset...")
+            X, y = make_classification(
+                n_samples=1000,
+                n_features=10,
+                n_informative=5,
+                n_redundant=2,
+                n_classes=2,
+                random_state=42
+            )
+            
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42, stratify=y
+            )
+            
+            # Train model
+            print("🤖 Training model...")
+            model = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=10,
+                random_state=42
+            )
+            model.fit(X_train, y_train)
+            
+            # Evaluate model
+            y_pred = model.predict(X_test)
+            accuracy = accuracy_score(y_test, y_pred)
+            
+            # Log results
+            mlflow.log_metric('accuracy', accuracy)
+            mlflow.log_metric('train_samples', len(X_train))
+            mlflow.log_metric('test_samples', len(X_test))
+            
+            # Log model
+            mlflow.sklearn.log_model(
+                model,
+                "random_forest_model",
+                registered_model_name="universal-ml-model"
+            )
+            
+            print(f"✅ Model trained successfully!")
+            print(f"📈 Accuracy: {accuracy:.4f}")
+            print(f"🔍 Classification Report:")
+            print(classification_report(y_test, y_pred))
+            
+            return accuracy
+    except Exception as e:
+        print("❌ Failed to connect to MLflow tracking server or start MLflow run.")
+        print(f"Error: {e}")
+        print("Please check that the MLflow tracking server is running and the URI is correct.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     train_model()
