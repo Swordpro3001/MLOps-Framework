@@ -76,7 +76,8 @@ for /L %%i in (1,1,30) do (
         goto :GITLAB_CONFIGURED
     )
     
-    docker exec gitlab gitlab-rails runner "user = User.new(username: 'root', email: 'admin@example.com', name: 'Administrator', admin: true, password: '%GITLAB_ROOT_PASSWORD%', password_confirmation: '%GITLAB_ROOT_PASSWORD%'); user.skip_confirmation!; user.save!(validate: false); puts 'Root user created'" >nul 2>&1
+    REM Call shared script to create GitLab root user (see scripts/create_gitlab_root_user.sh for logic)
+    docker exec gitlab bash /scripts/create_gitlab_root_user.sh "%GITLAB_ROOT_PASSWORD%" >nul 2>&1
     if not errorlevel 1 (
         echo GitLab root user created successfully!
         goto :GITLAB_CONFIGURED
