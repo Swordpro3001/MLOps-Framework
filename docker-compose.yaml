@@ -14,12 +14,6 @@ networks:
 volumes:
   postgres-data:
     driver: local
-  teamcity-data:
-    driver: local
-  teamcity-logs:
-    driver: local
-  teamcity-agent-conf:
-    driver: local
   gitlab-config:
     driver: local
   gitlab-logs:
@@ -94,62 +88,6 @@ services:
   # =============================================================================
   # CI SERVICES (Platform Independent)
   # =============================================================================
-
-  teamcity-server:
-    image: jetbrains/teamcity-server:2023.11
-    container_name: teamcity-server
-    restart: unless-stopped
-    networks:
-      - devops-network
-    ports:
-      - "${TEAMCITY_PORT:-8111}:8111"
-    environment:
-      TEAMCITY_SERVER_MEM_OPTS: "-Xmx2g -XX:ReservedCodeCacheSize=512m"
-      TEAMCITY_LOGS: /opt/teamcity/logs
-      TEAMCITY_DATA_PATH: /data/teamcity_server/datadir
-    volumes:
-      - teamcity-data:/data/teamcity_server/datadir
-      - teamcity-logs:/opt/teamcity/logs
-      - ./teamcity-config:/data/teamcity_server/datadir/config:rw
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8111/app/rest/server"]
-      interval: 60s
-      timeout: 30s
-      retries: 10
-      start_period: 120s
-
-  teamcity-agent:
-    image: jetbrains/teamcity-agent:2023.11
-    container_name: teamcity-agent
-    restart: unless-stopped
-    networks:
-      - devops-network
-    environment:
-      SERVER_URL: http://teamcity-server:8111
-      AGENT_NAME: ${AGENT_NAME:-universal-agent}
-      # Platform detection will be handled automatically
-    volumes:
-      - teamcity-agent-conf:/data/teamcity_agent/conf
-      # Cross-platform Docker socket mounting
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./ml-models:/opt/ml-models:rw
-      - ./scripts:/opt/scripts:ro
-    depends_on:
-      teamcity-server:
-        condition: service_healthy
-    # Conditional GPU access - works on both platforms
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-        limits:
-          memory: 4G
 
   gitlab:
     image: gitlab/gitlab-ce:16.5.1-ce.0
@@ -335,7 +273,7 @@ services:
       # Platform-independent configuration
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_USERS_ALLOW_SIGN_UP: false
+      GF_USERS_ALLOW_SIGN_UP: "false"
       GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-worldmap-panel,grafana-clock-panel
       GF_RENDERING_SERVER_URL: http://grafana-renderer:8081/render
       GF_RENDERING_CALLBACK_URL: http://grafana:3000/
@@ -412,18 +350,13 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD:-redispass}"
     depends_on:
       - redis
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9121/metrics"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # =============================================================================
   # ML SERVICES (Platform Independent)
   # =============================================================================
 
   mlflow:
-    image: python:3.11-slim
+    image: ghcr.io/mlflow/mlflow:v2.18.0
     container_name: mlflow-server
     restart: unless-stopped
     networks:
@@ -432,34 +365,29 @@ services:
       - "${MLFLOW_PORT:-5000}:5000"
     environment:
       MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:${POSTGRES_PASSWORD_MLFLOW:-mlflowpass}@postgres:5432/mlflow
-      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
-      MLFLOW_HOST: 0.0.0.0
-      MLFLOW_PORT: 5000
-      MLFLOW_WORKERS: ${MLFLOW_WORKERS:-2}
+      MLFLOW_ARTIFACT_ROOT: /mlflow/artifacts
     volumes:
       - mlflow-artifacts:/mlflow/artifacts
       - ./ml-models:/models:rw
-      - ./scripts/mlflow-entrypoint.sh:/entrypoint.sh:ro
     command: >
       bash -c "
-      pip install --no-cache-dir mlflow[extras]==2.8.1 psycopg2-binary boto3 &&
-      mlflow server 
+      pip install --no-cache-dir psycopg2-binary &&
+      mlflow server
         --backend-store-uri postgresql://mlflow:${POSTGRES_PASSWORD_MLFLOW:-mlflowpass}@postgres:5432/mlflow
-        --default-artifact-root /mlflow/artifacts
+        --artifacts-destination /mlflow/artifacts
         --host 0.0.0.0
         --port 5000
-        --workers ${MLFLOW_WORKERS:-2}
-        --gunicorn-opts '--timeout 60'
+        --gunicorn-opts '--workers=${MLFLOW_WORKERS:-2} --timeout=60'
       "
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:5000/health\")' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s
 
   # Universal TensorBoard
   tensorboard:
@@ -527,7 +455,7 @@ services:
     environment:
       REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry
       REGISTRY_HTTP_ADDR: 0.0.0.0:5000
-      REGISTRY_STORAGE_DELETE_ENABLED: true
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
     volumes:
       - registry-data:/var/lib/registry
       - ./auth/registry:/auth:ro
@@ -545,14 +473,14 @@ services:
     networks:
       - devops-network
     environment:
-      PGLADMIN_DEFAULT_EMAIL: ${PGLADMIN_EMAIL:-admin@admin.com}
-      PGLADMIN_DEFAULT_PASSWORD: ${PGLADMIN_PASSWORD:-admin}
-      PGLADMIN_CONFIG_SERVER_MODE: 'False'
-      PGLADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
     ports:
-      - "${PGLADMIN_PORT:-5050}:80"
+      - "${PGADMIN_PORT:-5050}:80"
     volumes:
-      - ./volumes/pgladmin:/var/lib/pgladmin:rw
+      - ./volumes/pgadmin:/var/lib/pgadmin:rw
     depends_on:
       - postgres
 
@@ -574,11 +502,10 @@ services:
       - jupyterhub-data:/srv/jupyterhub
       - ./ml-models:/home/shared/models:rw
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./jupyter-config:/srv/jupyterhub/config:ro
     command: >
       bash -c "
       pip install --no-cache-dir dockerspawner &&
-      jupyterhub --config /srv/jupyterhub/config/jupyterhub_config.py
+      jupyterhub --ip=0.0.0.0 --port=8000
       "
 
 # =============================================================================
