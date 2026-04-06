@@ -1,0 +1,14 @@
+# requirements-train.txt
+# Model training dependencies.
+# Pin to exact versions for reproducible builds (pip-compile managed).
+
+mlflow==2.18.0
+scikit-learn==1.4.2
+torch==2.3.0
+torch-geometric==2.5.3
+numpy==1.26.4
+pandas==2.2.2
+psycopg2-binary==2.9.9
+pyyaml==6.0.1
+prometheus-client==0.20.0
+loguru==0.7.2

@@ -1,0 +1,10 @@
+# requirements-ingestion.txt
+# GeoPackage ingestion and PostgreSQL loading dependencies.
+# Pin to exact versions for reproducible builds (pip-compile managed).
+
+fiona==1.9.6
+geopandas==0.14.4
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.30
+pyyaml==6.0.1
+loguru==0.7.2
