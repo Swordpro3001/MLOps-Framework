@@ -1,4 +1,7 @@
-/volumes/
+/volumes/*
+!/volumes/pgadmin/
+/volumes/pgadmin/*
+!/volumes/pgadmin/servers.json
 /setup.log
 /logs/
 /backups/
