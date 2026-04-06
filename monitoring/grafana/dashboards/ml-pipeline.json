@@ -1,0 +1,115 @@
+{
+  "title": "ML Pipeline",
+  "uid": "ml-pipeline",
+  "tags": ["ml", "ai4ads", "training"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Latest Validation Accuracy",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "traffic_model_validation_accuracy",
+          "legendFormat": "Accuracy"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.75 },
+              { "color": "green", "value": 0.90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Training Run Duration (last 10 runs)",
+      "type": "bargauge",
+      "gridPos": { "x": 6, "y": 0, "w": 9, "h": 4 },
+      "targets": [
+        {
+          "expr": "traffic_model_training_duration_seconds",
+          "legendFormat": "{{run_id}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 3,
+      "title": "Hyperparameter Tuning Iterations per Cycle",
+      "type": "stat",
+      "gridPos": { "x": 15, "y": 0, "w": 9, "h": 4 },
+      "targets": [
+        {
+          "expr": "traffic_model_hyperparameter_iterations_total",
+          "legendFormat": "Iterations"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Validation Accuracy Over Time",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "traffic_model_validation_accuracy",
+          "legendFormat": "Validation Accuracy"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 0.75 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Validation Loss Over Time",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "traffic_model_validation_loss",
+          "legendFormat": "Validation Loss"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Jenkins Build Status",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 6 },
+      "targets": [
+        {
+          "expr": "default_jenkins_builds_last_build_result_ordinal",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "text": "SUCCESS" }, "1": { "text": "UNSTABLE" }, "2": { "text": "FAILURE" } }, "type": "value" }
+          ]
+        }
+      }
+    }
+  ]
+}
