@@ -1,0 +1,86 @@
+groups:
+  # ---------------------------------------------------------------------------
+  # Infrastructure health alerts
+  # ---------------------------------------------------------------------------
+  - name: infrastructure
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.service }} is down"
+          description: "{{ $labels.service }} has been unreachable for more than 2 minutes."
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage has exceeded 85 % for more than 5 minutes."
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage has exceeded 90 % for more than 5 minutes."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Less than 10 % disk space remaining on the root filesystem."
+
+  # ---------------------------------------------------------------------------
+  # ML pipeline alerts
+  # ---------------------------------------------------------------------------
+  - name: ml-pipeline
+    rules:
+      - alert: TrainingJobFailed
+        expr: kube_job_status_failed{namespace="traffic-training"} > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Training job failed in namespace traffic-training"
+          description: "A Kubernetes training Job has exceeded its backoffLimit and is marked as failed."
+
+      - alert: ModelValidationAccuracyLow
+        # Fires when the most recent training run recorded accuracy below 0.75.
+        # The metric is pushed by the training container via PushGateway.
+        expr: traffic_model_validation_accuracy < 0.75
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Model validation accuracy below threshold"
+          description: "The latest training run achieved accuracy {{ $value | humanize }}, which is below the 0.75 threshold."
+
+      - alert: FlowConservationViolationsHigh
+        # Fires when the correction API is reporting an unexpectedly high
+        # fraction of junctions with unresolved flow-conservation violations.
+        expr: rate(traffic_flow_violations_total[10m]) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate of unresolved flow-conservation violations"
+          description: "The correction API is reporting more than 50 violations/minute over the past 10 minutes."
+
+      - alert: InferenceLatencyHigh
+        expr: histogram_quantile(0.95, rate(traffic_api_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "95th-percentile inference latency exceeds 2 s"
+          description: "p95 prediction latency is {{ $value | humanizeDuration }}, above the 2 s SLO."

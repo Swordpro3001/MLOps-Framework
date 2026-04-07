@@ -1,0 +1,220 @@
+// =============================================================================
+// AI4Ads MLOps — Jenkins CI/CD Pipeline
+// Six sequential stages; stages 1–3 run on every branch, 4–6 on main only.
+// =============================================================================
+
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 90, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        REGISTRY      = 'localhost:5555'
+        MLFLOW_URI    = credentials('mlflow-tracking-uri')
+        KUBECONFIG    = credentials('kubeconfig')
+    }
+
+    stages {
+
+        // ---------------------------------------------------------------------
+        // Stage 1 — Checkout and Dependency Validation
+        // Runs on every branch push. Fails fast if dependency resolution breaks.
+        // ---------------------------------------------------------------------
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh '''
+                    pip install pip-tools --quiet
+                    pip-compile requirements-train.txt --quiet
+                    pip-compile requirements-api.txt   --quiet
+                '''
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Stage 2 — Static Analysis and Unit Tests
+        // ruff (linting), mypy (type checking), pytest with 80 % coverage gate.
+        // ---------------------------------------------------------------------
+        stage('Test') {
+            steps {
+                sh 'ruff check src/'
+                sh 'mypy src/ --ignore-missing-imports'
+                sh '''
+                    pytest src/tests/          \
+                        --cov=src              \
+                        --cov-report=xml:coverage.xml \
+                        --cov-fail-under=80    \
+                        --junitxml=test-results/results.xml
+                '''
+            }
+            post {
+                always {
+                    junit 'test-results/*.xml'
+                    publishCoverage adapters: [coberturaAdapter('coverage.xml')]
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Stage 3 — Docker Build and Push
+        // Builds multi-stage images for all three pipeline components and pushes
+        // them to the private registry tagged with <semver>-<short-sha>.
+        // ---------------------------------------------------------------------
+        stage('Build & Push') {
+            steps {
+                script {
+                    def version = sh(
+                        script: 'git describe --tags --abbrev=0',
+                        returnStdout: true
+                    ).trim()
+                    def sha = env.GIT_COMMIT.take(7)
+                    def tag = "${version}-${sha}"
+
+                    ['ingestion', 'trainer', 'api'].each { svc ->
+                        sh "docker build -t ${REGISTRY}/traffic-${svc}:${tag} \
+                            -f docker/Dockerfile.${svc} ."
+                        sh "docker push ${REGISTRY}/traffic-${svc}:${tag}"
+                    }
+
+                    // Write the tag so subsequent stages can read it
+                    writeFile file: 'image-tag.txt', text: tag
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Stage 4 — Model Training  (main branch only)
+        // Submits a Kubernetes Job and blocks until it completes or times out.
+        // The MLflow run ID produced by training is captured for Stage 5.
+        // ---------------------------------------------------------------------
+        stage('Train') {
+            when { branch 'main' }
+            steps {
+                script {
+                    def tag = readFile('image-tag.txt').trim()
+                    sh """
+                        kubectl set image job/traffic-model-training \
+                            trainer=${REGISTRY}/traffic-trainer:${tag} \
+                            -n traffic-training
+
+                        kubectl apply -f k8s-manifests/training-job.yaml
+
+                        kubectl wait job/traffic-model-training \
+                            --for=condition=complete \
+                            --timeout=3600s          \
+                            -n traffic-training
+                    """
+                    def runId = sh(
+                        script: """
+                            kubectl logs job/traffic-model-training \
+                                -n traffic-training                  \
+                            | grep 'MLFLOW_RUN_ID'                   \
+                            | tail -1 | cut -d= -f2
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    writeFile file: 'mlflow-run-id.txt', text: runId
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Stage 5 — Model Evaluation  (main branch only)
+        // Queries MLflow for the run's validation accuracy. Fails the pipeline
+        // if accuracy is below 0.75, preventing an underperforming model from
+        // being deployed.
+        // ---------------------------------------------------------------------
+        stage('Evaluate') {
+            when { branch 'main' }
+            steps {
+                script {
+                    def runId = readFile('mlflow-run-id.txt').trim()
+                    def accuracy = sh(
+                        script: """
+                            python - <<'EOF'
+import mlflow, os, sys
+client = mlflow.tracking.MlflowClient(tracking_uri="${MLFLOW_URI}")
+run = client.get_run("${runId}")
+acc = float(run.data.metrics.get("val_accuracy", 0))
+print(acc)
+EOF
+                        """,
+                        returnStdout: true
+                    ).trim().toFloat()
+
+                    echo "Validation accuracy: ${accuracy}"
+
+                    if (accuracy < 0.75) {
+                        error("Validation accuracy ${accuracy} is below the 0.75 threshold. Deployment aborted.")
+                    }
+
+                    // Promote the model version in the MLflow Model Registry
+                    sh """
+                        python - <<'EOF'
+import mlflow
+client = mlflow.tracking.MlflowClient(tracking_uri="${MLFLOW_URI}")
+# Find the model version linked to this run
+versions = client.search_model_versions("name='traffic-correction-model'")
+for v in versions:
+    if v.run_id == "${runId}":
+        client.transition_model_version_stage(
+            name="traffic-correction-model",
+            version=v.version,
+            stage="Production",
+        )
+        print(f"Promoted version {v.version} to Production")
+        break
+EOF
+                    """
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Stage 6 — Deployment  (main branch only)
+        // Updates the model-version-config ConfigMap and triggers a rolling
+        // restart of the correction API Deployment. KServe applies a
+        // RollingUpdate, ensuring requests continue to be served throughout
+        // the rollout.
+        // ---------------------------------------------------------------------
+        stage('Deploy') {
+            when { branch 'main' }
+            steps {
+                script {
+                    def runId  = readFile('mlflow-run-id.txt').trim()
+                    def tag    = readFile('image-tag.txt').trim()
+
+                    sh """
+                        # Update the active model version ConfigMap
+                        kubectl patch configmap model-version-config \
+                            -n traffic-serving                        \
+                            --type merge                              \
+                            -p '{"data":{"active_run_id":"${runId}"}}'
+
+                        # Update the API image and trigger a rolling restart
+                        kubectl set image deployment/traffic-correction-api \
+                            api=${REGISTRY}/traffic-api:${tag}         \
+                            -n traffic-serving
+
+                        # Wait for the rollout to complete
+                        kubectl rollout status deployment/traffic-correction-api \
+                            -n traffic-serving --timeout=300s
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline completed successfully for ${env.BRANCH_NAME}."
+        }
+        failure {
+            echo "Pipeline failed at stage ${currentBuild.currentResult}."
+        }
+    }
+}

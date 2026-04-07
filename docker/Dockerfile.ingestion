@@ -1,0 +1,51 @@
+# =============================================================================
+# Dockerfile.ingestion — AI4Ads Data Ingestion Service
+# Multi-stage build: builder resolves dependencies; runtime image is minimal.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: builder
+# Installs all Python dependencies into a dedicated prefix so the runtime
+# stage only copies the installed packages, not pip or build tools.
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Install build dependencies required by geospatial libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-ingestion.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements-ingestion.txt
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime
+# Copies only the installed packages and application source.
+# The GDAL/Fiona library for reading GeoPackage files is kept minimal.
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Runtime system libraries required by Fiona / GDAL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+        libgdal32 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed Python packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy application source
+COPY src/ingestion/ ./ingestion/
+
+# Non-root user for security hardening
+RUN useradd --no-create-home --shell /bin/false appuser
+USER appuser
+
+# The ingestion service is invoked as a one-shot script by the Kubernetes Job
+# or directly by the Jenkins pipeline; no long-running server is started.
+ENTRYPOINT ["python", "-m", "ingestion.main"]

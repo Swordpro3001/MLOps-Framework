@@ -1,5 +1,7 @@
-# Prometheus Configuration for ML DevOps Framework
-# Universal configuration for monitoring all services
+# =============================================================================
+# Prometheus Configuration — AI4Ads MLOps Framework
+# Global scrape interval: 15 s (sufficient resolution without excessive storage)
+# =============================================================================
 
 global:
   scrape_interval: 15s
@@ -8,26 +10,24 @@ global:
     cluster: 'ml-devops'
     environment: 'production'
 
-# Alertmanager configuration
 alerting:
   alertmanagers:
     - static_configs:
         - targets: []
 
-# Load rules once and periodically evaluate them
 rule_files:
   - '/etc/prometheus/rules/*.yml'
 
-# Scrape configurations
 scrape_configs:
-  # Prometheus itself
+  # ---------------------------------------------------------------------------
+  # Platform services
+  # ---------------------------------------------------------------------------
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
         labels:
           service: 'prometheus'
 
-  # Node Exporter - System metrics
   - job_name: 'node-exporter'
     static_configs:
       - targets: ['node-exporter:9100']
@@ -35,21 +35,21 @@ scrape_configs:
           service: 'node-exporter'
           instance: 'ml-devops-host'
 
-  # PostgreSQL Database Metrics
   - job_name: 'postgres'
     static_configs:
       - targets: ['postgres-exporter:9187']
         labels:
           service: 'postgres'
 
-  # Redis Cache Metrics
   - job_name: 'redis'
     static_configs:
       - targets: ['redis-exporter:9121']
         labels:
           service: 'redis'
 
-  # Jenkins CI/CD
+  # ---------------------------------------------------------------------------
+  # CI/CD services
+  # ---------------------------------------------------------------------------
   - job_name: 'jenkins'
     metrics_path: '/prometheus'
     static_configs:
@@ -57,54 +57,72 @@ scrape_configs:
         labels:
           service: 'jenkins'
 
-  # GitLab
   - job_name: 'gitlab'
     static_configs:
       - targets: ['gitlab:8929']
         labels:
           service: 'gitlab'
 
-  # MLflow Tracking Server
+  # ---------------------------------------------------------------------------
+  # ML services
+  # ---------------------------------------------------------------------------
   - job_name: 'mlflow'
     static_configs:
       - targets: ['mlflow:5000']
         labels:
           service: 'mlflow'
 
-  # Grafana
-  - job_name: 'grafana'
-    static_configs:
-      - targets: ['grafana:3000']
-        labels:
-          service: 'grafana'
-
-  # TensorBoard
   - job_name: 'tensorboard'
     static_configs:
       - targets: ['tensorboard:6006']
         labels:
           service: 'tensorboard'
 
-  # Docker containers metrics (if available)
-  # NOTE: Requires Docker's experimental metrics feature to be enabled.
-  # This is NOT enabled by default and requires manual configuration.
-  # To enable, add to your Docker daemon configuration file:
-  #   Linux: /etc/docker/daemon.json
-  #   Windows: %programdata%\docker\config\daemon.json
-  #   macOS: ~/.docker/daemon.json
-  # Add the following configuration:
-  #   {
-  #     "metrics-addr": "0.0.0.0:9323",
-  #     "experimental": true
-  #   }
-  # Then restart Docker daemon to apply changes.
+  # ---------------------------------------------------------------------------
+  # Monitoring services
+  # ---------------------------------------------------------------------------
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+
+  # ---------------------------------------------------------------------------
+  # Traffic-correction pipeline — project-specific scrape jobs
+  # ---------------------------------------------------------------------------
+
+  # Inference API deployed via KServe in the traffic-serving namespace.
+  # Exposes /metrics with request latency, throughput, and prediction counts.
+  - job_name: 'traffic-correction-api'
+    static_configs:
+      - targets: ['traffic-correction-api:8000']
+        labels:
+          service: 'traffic-api'
+          namespace: 'traffic-serving'
+
+  # Training job metrics pushed from inside the training container via the
+  # Prometheus client library. Metrics include validation loss, the number of
+  # flow-conservation violations detected per batch, and hyperparameter values.
+  - job_name: 'training-pushgateway'
+    # honor_labels preserves the job/instance labels set by the push client,
+    # allowing per-run metrics to be distinguished in dashboards.
+    honor_labels: true
+    static_configs:
+      - targets: ['pushgateway:9091']
+        labels:
+          service: 'ml-training'
+
+  # ---------------------------------------------------------------------------
+  # Optional: Docker daemon metrics
+  # Requires experimental metrics enabled in /etc/docker/daemon.json:
+  #   { "metrics-addr": "0.0.0.0:9323", "experimental": true }
+  # ---------------------------------------------------------------------------
   - job_name: 'docker'
     static_configs:
       - targets: ['host.docker.internal:9323']
         labels:
           service: 'docker'
 
-  # GPU Exporter (if available)
   - job_name: 'gpu-exporter'
     static_configs:
       - targets: ['gpu-exporter:9445']

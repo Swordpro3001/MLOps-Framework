@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Version suffix in the name makes every training run uniquely addressable.
+  # Jenkins updates this via kubectl set image before applying.
+  name: traffic-model-training-v1-2
+  namespace: traffic-training
+spec:
+  # Retry at most twice on failure before marking the job as failed.
+  backoffLimit: 2
+  template:
+    spec:
+      # Pin training jobs to nodes labelled workload=ml-training so that
+      # GPU or high-memory nodes are reserved for training workloads only.
+      nodeSelector:
+        workload: ml-training
+      restartPolicy: OnFailure
+      containers:
+        - name: trainer
+          image: localhost:5555/traffic-trainer:1.2.0-a3f7c9d
+          env:
+            # MLflow tracking URI is injected from a Kubernetes Secret so
+            # that the value never appears in plaintext in source control.
+            - name: MLFLOW_TRACKING_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-credentials
+                  key: tracking-uri
+            - name: MLFLOW_EXPERIMENT_NAME
+              value: "traffic-correction"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: training-data
+              mountPath: /data
+            - name: hyperparams
+              mountPath: /config
+      volumes:
+        - name: training-data
+          persistentVolumeClaim:
+            claimName: traffic-data-pvc
+        # Hyperparameter ConfigMap is updated by the pipeline without
+        # requiring a container rebuild or redeployment.
+        - name: hyperparams
+          configMap:
+            name: hyperparams-config

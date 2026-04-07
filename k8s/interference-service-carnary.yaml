@@ -1,0 +1,27 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: traffic-correction-model
+  namespace: traffic-serving
+spec:
+  predictor:
+    # 10 % of prediction requests are routed to the new model version.
+    # The canary period is two hours; if error rate and latency remain
+    # within bounds, canaryTrafficPercent is set to 0 for full promotion.
+    # To roll back, remove the canaryTrafficPercent field entirely.
+    canaryTrafficPercent: 10
+    minReplicas: 2
+    maxReplicas: 8
+    scaleTarget: 60
+    scaleMetric: cpu
+    model:
+      modelFormat:
+        name: mlflow
+      storageUri: "s3://mlflow-artifacts/traffic-correction/2/artifacts/model"
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"

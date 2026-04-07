@@ -1,0 +1,53 @@
+# =============================================================================
+# Dockerfile.trainer — AI4Ads Model Training Service
+# Multi-stage build: builder resolves dependencies; runtime image is minimal.
+# Training runs as a Kubernetes Job; resources are released on completion.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: builder
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libpq-dev \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-train.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements-train.txt
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime
+# ---------------------------------------------------------------------------
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local
+
+# Application source — model training code and shared utilities
+COPY src/trainer/  ./trainer/
+COPY src/shared/   ./shared/
+
+# Non-root user
+RUN useradd --no-create-home --shell /bin/false appuser
+USER appuser
+
+# Environment variables consumed by the training script.
+# Values are injected from Kubernetes Secrets / ConfigMaps at runtime.
+ENV MLFLOW_TRACKING_URI=""
+ENV MLFLOW_EXPERIMENT_NAME="traffic-correction"
+ENV HYPERPARAMS_PATH="/config/hyperparams.yaml"
+ENV DATA_PATH="/data"
+
+# The training script prints MLFLOW_RUN_ID=<id> to stdout so the Jenkins
+# pipeline can capture it via kubectl logs.
+ENTRYPOINT ["python", "-m", "trainer.main"]

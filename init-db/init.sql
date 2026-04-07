@@ -24,3 +24,14 @@ GRANT ALL ON SCHEMA public TO gitlab;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 ALTER DATABASE mlflow OWNER TO mlflow;
 GRANT ALL ON SCHEMA public TO mlflow;
+
+-- Traffic-correction application database
+CREATE DATABASE traffic_correction;
+CREATE USER traffic WITH ENCRYPTED PASSWORD 'trafficpass';
+GRANT ALL PRIVILEGES ON DATABASE traffic_correction TO traffic;
+
+-- Traffic-correction schema extensions
+\c traffic_correction;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+ALTER DATABASE traffic_correction OWNER TO traffic;
+GRANT ALL ON SCHEMA public TO traffic;

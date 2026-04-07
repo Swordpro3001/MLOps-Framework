@@ -1,0 +1,29 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: traffic-correction-model
+  namespace: traffic-serving
+  annotations:
+    # cert-manager issues TLS for the prediction endpoint automatically
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  predictor:
+    # Autoscaling bounds: always keep 2 replicas warm; scale to 8 at peak
+    minReplicas: 2
+    maxReplicas: 8
+    # Scale up when CPU utilisation of any replica exceeds 60 %
+    scaleTarget: 60
+    scaleMetric: cpu
+    model:
+      modelFormat:
+        name: mlflow
+      # Points directly to the MLflow artifact store; KServe downloads
+      # the model at pod startup via its MLflow storage initialiser.
+      storageUri: "s3://mlflow-artifacts/traffic-correction/1/artifacts/model"
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "2"
+          memory: "2Gi"
